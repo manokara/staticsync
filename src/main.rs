@@ -6,14 +6,18 @@ extern crate getopts;
 extern crate serde_json;
 
 use std::{env, io::Read, process::exit, thread::sleep, time::Duration};
-use std::fs::{File, Metadata, metadata};
-use std::io::{BufReader};
+use std::fs::{File, Metadata, copy, metadata};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime};
 use crypto::{digest::Digest, sha1::Sha1};
 use getopts::Options;
 use failure::Error;
-use filetime::FileTime;
+use filetime::{FileTime, set_file_times};
 use serde_json::{Value as JSONValue};
+
+const FILES_THE_SAME: &'static str = "Files are the same! Not updating.";
+const CACHE_SIZE: usize = 10485760; // 10 MB
+const SLEEP_TIME: u64 = 10;
 
 enum SetupError {
     MalformedCLI(String),
@@ -48,22 +52,28 @@ fn error(string: &str) -> ! {
 }
 
 fn usage() { 
-    println!(r#"staticsync [-c CONFIG_PATH]
+    println!(r#"staticsync [OPTIONS]
 
 OPTIONS:
--c CONFIG\tPath to a configuration file. Will use .staticsync.json in your home folder if this is not specified.
-"#);
+-c, --config CONFIG Path to a configuration file. Will use .staticsync.json in your home folder if unspecified.
+-d, --delay SECONDS Delay time between each check
+-s, --size SIZE     Hashing cache size, in bytes (default: 10 MB, 10485760)
+-o, --once          Only run sync once"#);
 }
 
-fn setup() -> Result<(JSONValue, Duration), SetupError> {
+fn setup() -> Result<(bool, usize, JSONValue, Duration), SetupError> {
     let args: Vec<String> = env::args().collect();
     let config_file: String;
     let sleep_time: Duration;
+    let cache_size: usize;
+    let once: bool;
 
     let mut opts = Options::new();
-    opts.optopt("c", "config", "Config file", "PATH");
-    opts.optopt("t", "time", "Interval between checks in seconds.", "SECONDS");
-    opts.optopt("h", "help", "Find help", "SECONDS");
+    opts.optopt("c", "config", "", "");
+    opts.optopt("d", "delay", "", "");
+    opts.optopt("s", "size", "", "");
+    opts.optflag("o", "once", "");
+    opts.optopt("h", "help", "", "");
 
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => { m }
@@ -74,6 +84,20 @@ fn setup() -> Result<(JSONValue, Duration), SetupError> {
         usage();
         exit(0);
     }
+
+    once = matches.opt_present("once");
+
+    cache_size = match matches.opt_str("size") {
+        Some(s) => {
+            if let Ok(n) = s.parse::<usize>() {
+                n
+            } else {
+                error("Cache size invalid.");
+            }
+        }
+
+        None => CACHE_SIZE
+    };
 
     config_file = match matches.opt_str("config") {
         Some(s) => s,
@@ -88,7 +112,7 @@ fn setup() -> Result<(JSONValue, Duration), SetupError> {
         }
     };
 
-    sleep_time = Duration::from_secs(match matches.opt_str("time") {
+    sleep_time = Duration::from_secs(match matches.opt_str("delay") {
         Some(s) => {
             let secs: Option<u64> = s.parse::<u64>().ok();
             match secs {
@@ -96,7 +120,7 @@ fn setup() -> Result<(JSONValue, Duration), SetupError> {
                 None => return Err(SetupError::MalformedCLI("Invalid interval number".to_string()))
             }
         },
-        None => 10
+        None => SLEEP_TIME
     });
 
     println!("Loading config \"{}\"...", config_file);
@@ -120,12 +144,12 @@ fn setup() -> Result<(JSONValue, Duration), SetupError> {
         }
     }
 
-    Ok((value, sleep_time))
+    Ok((once, cache_size, value, sleep_time))
 }
 
-fn calculate_hash(path: &str) -> Result<String, Error> {
+fn calculate_hash(cache_size: usize, path: &str) -> Result<String, Error> {
     let mut file = File::open(path)?;
-    let mut buf = [0u8; 1024*8];
+    let mut buf = Vec::with_capacity(cache_size);
     let mut hasher = Sha1::new();
 
     loop {
@@ -137,7 +161,7 @@ fn calculate_hash(path: &str) -> Result<String, Error> {
     Ok(hasher.result_str())
 }
 
-fn sync(config: &JSONValue) {
+fn sync(cache_size: usize, config: &JSONValue) {
     use std::cmp::Ordering;
 
     println!("\nChecking...");
@@ -160,32 +184,35 @@ fn sync(config: &JSONValue) {
                 Ordering::Greater => (0, 1),
                 Ordering::Less => (1, 0),
                 Ordering::Equal => {
-                    println!("\tFiles are the same!");
+                    println!("\t{}", FILES_THE_SAME);
                     continue;
                 }
             }
         };
 
         println!("\t#{} is newer. Checking hashes...", newest+1);
-        let hash: Vec<String> = path.iter().map(|x| calculate_hash(x).unwrap()).collect();
-        println!("{:?}", hash);
+        let hash: Vec<String> = path.iter().map(|x| calculate_hash(cache_size, x).unwrap()).collect();
+
         if hash[0] != hash[1] {
             println!("\tReplacing #{} with #{}", newest+1, oldest+1);
-            // TODO: File copy
+            let atime = FileTime::from_system_time(SystemTime::now());
+            copy(path[newest], path[oldest]).expect("Make sure you have permissions to copy!");
+            set_file_times(path[oldest], atime, ftime[newest]).expect("Make sure you have permission to modify timestamps!");
         } else {
-            println!("\tFiles are the same! Not updating.");
+            println!("\t{}", FILES_THE_SAME);
         }
     }
 }
 
 fn main() {
-    let (config, sleep_time) = match setup() {
+    let (once, cache_size, config, sleep_time) = match setup() {
         Ok(v) => v,
         Err(e) => error(&e.to_string())
     };
 
     loop {
-        sync(&config);
+        sync(cache_size, &config);
+        if once { break }
         sleep(sleep_time);
     }
 }
