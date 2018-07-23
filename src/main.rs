@@ -1,17 +1,15 @@
 extern crate crypto;
 extern crate dirs;
-extern crate failure;
 extern crate filetime;
 extern crate getopts;
 extern crate serde_json;
 
-use std::{env, io::Read, process::exit, thread::sleep, time::Duration};
+use std::{env, io::Error, io::Read, process::exit, thread::sleep, time::Duration};
 use std::fs::{File, Metadata, copy, metadata};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime};
 use crypto::{digest::Digest, sha1::Sha1};
 use getopts::Options;
-use failure::Error;
 use filetime::{FileTime, set_file_times};
 use serde_json::{Value as JSONValue};
 
@@ -192,14 +190,16 @@ fn sync(cache_size: usize, config: &JSONValue) {
 
         println!("\t#{} is newer. Checking hashes...", newest+1);
         let hash: Vec<String> = path.iter().map(|x| calculate_hash(cache_size, x).unwrap()).collect();
+        let atime = FileTime::from_system_time(SystemTime::now());
 
         if hash[0] != hash[1] {
             println!("\tReplacing #{} with #{}", newest+1, oldest+1);
-            let atime = FileTime::from_system_time(SystemTime::now());
             copy(path[newest], path[oldest]).expect("Make sure you have permissions to copy!");
             set_file_times(path[oldest], atime, ftime[newest]).expect("Make sure you have permission to modify timestamps!");
         } else {
             println!("\t{}", FILES_THE_SAME);
+            // Update filetime in that case so we don't waste time hashing again.
+            set_file_times(path[oldest], atime, ftime[newest]).expect("Make sure you have permission to modify timestamps!");
         }
     }
 }

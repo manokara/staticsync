@@ -1,11 +1,10 @@
 [package]
 name = "staticsync"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Marcus Correia <marknokalt@live.com>"]
 
 [dependencies]
 dirs = "1.0"
-failure = "0.1"
 filetime = "0.2"
 getopts = "0.2"
 rust-crypto = "0.2"
