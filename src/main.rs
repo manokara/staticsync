@@ -125,18 +125,31 @@ fn setup() -> Result<(bool, usize, JSONValue, Duration), SetupError> {
     let file = File::open(config_file)?;
 
     let value: JSONValue = serde_json::from_reader(file)?;
+    let same_error = |x: &str| { SetupError::ConfigLoadError(format!("Duplicated path: {}", x)) };
+    let dir_error = |x: &str| { SetupError::ConfigLoadError(format!("Path \"{}\" is a directory!", x)) };
     let abs_error = |x: &str| { SetupError::ConfigLoadError(format!("Path must be absolute: {}", x)) };
     let exs_error = |x: &str| { SetupError::ConfigLoadError(format!("File \"{}\" does not exist!", x)) };
 
     {
-        // Check if paths are absolute and if they exist
+        // Validate paths
         let files: &Vec<JSONValue> = value.get("files").unwrap().as_array().unwrap();
         for entry in files {
             let buf: Vec<PathBuf> = entry.as_array().unwrap().iter().take(2).map(|x| PathBuf::from(x.as_str().unwrap())).collect();
             let path: Vec<&Path> = buf.iter().map(|x| x.as_path()).collect();
+
+            // Check if paths are absolute
             if !path[0].is_absolute() { return Err(abs_error(path[0].to_str().unwrap())); }
             if !path[1].is_absolute() { return Err(abs_error(path[1].to_str().unwrap())); }
-            // TODO: Check for both files not existing instead (see sync)
+
+            // Check if paths are directories
+            if path[0].is_dir() { return Err(dir_error(path[0].to_str().unwrap())); }
+            if path[1].is_dir() { return Err(dir_error(path[1].to_str().unwrap())); }
+
+            // Check if paths are duplicated
+            if path[0] == path[1] { return Err(same_error(path[0].to_str().unwrap())); }
+
+            // Check if files exist
+            // TODO: Check for both files not existing instead (sync)
             if !path[0].exists() { return Err(exs_error(path[0].to_str().unwrap())); }
             if !path[1].exists() { return Err(exs_error(path[1].to_str().unwrap())); }
         }
