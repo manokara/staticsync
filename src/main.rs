@@ -14,7 +14,7 @@ use filetime::{FileTime, set_file_times};
 use serde_json::{Value as JSONValue};
 
 const FILES_THE_SAME: &'static str = "Files are the same! Not updating.";
-const BUFFER_SIZE: usize = 10485760; // 10 MB
+const BUFFER_SIZE: usize = 8096; // 8 KB
 const SLEEP_TIME: u64 = 10;
 
 enum SetupError {
@@ -55,7 +55,7 @@ fn usage() {
 OPTIONS:
 -c, --config CONFIG Path to a configuration file. Will use .staticsync.json in your home folder if unspecified.
 -d, --delay SECONDS Delay time between each check
--s, --size SIZE     Hashing buffer size, in bytes (default: 10 MB, 10485760)
+-s, --size SIZE     Hashing buffer size, in bytes (default: 8 KB, 8096)
 -o, --once          Only run sync once"#);
 }
 
@@ -71,7 +71,7 @@ fn setup() -> Result<(bool, usize, JSONValue, Duration), SetupError> {
     opts.optopt("d", "delay", "", "");
     opts.optopt("s", "size", "", "");
     opts.optflag("o", "once", "");
-    opts.optopt("h", "help", "", "");
+    opts.optflag("h", "help", "");
 
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => { m }
@@ -160,7 +160,8 @@ fn setup() -> Result<(bool, usize, JSONValue, Duration), SetupError> {
 
 fn calculate_hash(buffer_size: usize, path: &str) -> Result<String, Error> {
     let mut file = File::open(path)?;
-    let mut buf = Vec::with_capacity(buffer_size);
+    let mut buf: Vec<u8> = Vec::with_capacity(buffer_size);
+    unsafe { buf.set_len(buffer_size); }
     let mut hasher = Sha1::new();
 
     loop {
@@ -203,6 +204,7 @@ fn sync(buffer_size: usize, config: &JSONValue) {
 
         println!("\t#{} is newer. Checking hashes...", newest+1);
         let hash: Vec<String> = path.iter().map(|x| calculate_hash(buffer_size, x).unwrap()).collect();
+        println!("\t{} vs {}", hash[0], hash[1]);
         let atime = FileTime::from_system_time(SystemTime::now());
 
         if hash[0] != hash[1] {
