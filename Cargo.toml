@@ -1,7 +1,11 @@
 [package]
 name = "staticsync"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Marcus Correia <marknokalt@live.com>"]
+
+[[bin]]
+path = "src/main.rs"
+name = "staticsync"
 
 [dependencies]
 dirs = "1.0"
