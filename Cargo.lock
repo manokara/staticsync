@@ -125,7 +125,7 @@ dependencies = [
 
 [[package]]
 name = "staticsync"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "dirs 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "filetime 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",

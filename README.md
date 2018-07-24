@@ -12,6 +12,7 @@ staticsync just copies the newer file to the older path. Maybe I'll add delta sy
     -c, --config CONFIG Path to a configuration file. Will use .staticsync.json in your home folder if unspecified.
     -t, --time SECONDS  Delay time between each check
     -s, --size SIZE     Hashing buffer size, in bytes (default: 8 KB, 8096)
+    -v, --verbose       Show more information when synching
     -n, --once          Only run sync once
 
 ## Config format

@@ -56,20 +56,23 @@ OPTIONS:
 -c, --config CONFIG Path to a configuration file. Will use .staticsync.json in your home folder if unspecified.
 -d, --delay SECONDS Delay time between each check
 -s, --size SIZE     Hashing buffer size, in bytes (default: 8 KB, 8096)
+-v, --verbose       Show more information when synching
 -o, --once          Only run sync once"#);
 }
 
-fn setup() -> Result<(bool, usize, JSONValue, Duration), SetupError> {
+fn setup() -> Result<(bool, bool, usize, JSONValue, Duration), SetupError> {
     let args: Vec<String> = env::args().collect();
     let config_file: String;
     let sleep_time: Duration;
     let buffer_size: usize;
+    let verbose: bool;
     let once: bool;
 
     let mut opts = Options::new();
     opts.optopt("c", "config", "", "");
     opts.optopt("d", "delay", "", "");
     opts.optopt("s", "size", "", "");
+    opts.optflag("v", "verbose", "");
     opts.optflag("o", "once", "");
     opts.optflag("h", "help", "");
 
@@ -83,6 +86,7 @@ fn setup() -> Result<(bool, usize, JSONValue, Duration), SetupError> {
         exit(0);
     }
 
+    verbose = matches.opt_present("verbose");
     once = matches.opt_present("once");
 
     buffer_size = match matches.opt_str("size") {
@@ -155,7 +159,7 @@ fn setup() -> Result<(bool, usize, JSONValue, Duration), SetupError> {
         }
     }
 
-    Ok((once, buffer_size, value, sleep_time))
+    Ok((verbose, once, buffer_size, value, sleep_time))
 }
 
 fn calculate_hash(buffer_size: usize, path: &str) -> Result<String, Error> {
@@ -173,10 +177,10 @@ fn calculate_hash(buffer_size: usize, path: &str) -> Result<String, Error> {
     Ok(hasher.result_str())
 }
 
-fn sync(buffer_size: usize, config: &JSONValue) {
+fn sync(verbose: bool, buffer_size: usize, config: &JSONValue) {
     use std::cmp::Ordering;
 
-    println!("\nChecking...");
+    println!("Checking...");
     let files = config.get("files").unwrap().as_array().unwrap();
 
     for entry in files {
@@ -188,31 +192,36 @@ fn sync(buffer_size: usize, config: &JSONValue) {
         let ftime: Vec<FileTime> = meta.iter()
             .map(|x| FileTime::from_last_modification_time(&x)).collect();
 
-        println!("{} vs {}", path[0], path[1]);
-        println!("\tmtime: {} --- {}", ftime[0], ftime[1]);
+        if verbose {
+            println!("{} vs {}", path[0], path[1]);
+            println!("\tmtime: {} --- {}", ftime[0], ftime[1]);
+        }
 
         let (newest, oldest) = {
             match ftime[0].cmp(&ftime[1]) {
                 Ordering::Greater => (0, 1),
                 Ordering::Less => (1, 0),
                 Ordering::Equal => {
-                    println!("\t{}", FILES_THE_SAME);
+                    if verbose { println!("\t{}", FILES_THE_SAME); }
                     continue;
                 }
             }
         };
 
-        println!("\t#{} is newer. Checking hashes...", newest+1);
         let hash: Vec<String> = path.iter().map(|x| calculate_hash(buffer_size, x).unwrap()).collect();
-        println!("\t{} vs {}", hash[0], hash[1]);
         let atime = FileTime::from_system_time(SystemTime::now());
+        if verbose { 
+            println!("\t#{} is newer. Checking hashes...", newest+1);
+            println!("\t{} vs {}", hash[0], hash[1]);
+        }
 
         if hash[0] != hash[1] {
-            println!("\tReplacing #{} with #{}", newest+1, oldest+1);
+            if verbose { println!("\tReplacing #{} with #{}", newest+1, oldest+1); }
             copy(path[newest], path[oldest]).expect("Make sure you have permissions to copy!");
             set_file_times(path[oldest], atime, ftime[newest]).expect("Make sure you have permission to modify timestamps!");
+            if !verbose { println!("Updated {}", path[oldest]); }
         } else {
-            println!("\t{}", FILES_THE_SAME);
+            if verbose { println!("\t{}", FILES_THE_SAME); }
             // Update filetime in that case so we don't waste time hashing again.
             set_file_times(path[oldest], atime, ftime[newest]).expect("Make sure you have permission to modify timestamps!");
         }
@@ -220,13 +229,13 @@ fn sync(buffer_size: usize, config: &JSONValue) {
 }
 
 fn main() {
-    let (once, buffer_size, config, sleep_time) = match setup() {
+    let (verbose, once, buffer_size, config, sleep_time) = match setup() {
         Ok(v) => v,
         Err(e) => error(&e.to_string())
     };
 
     loop {
-        sync(buffer_size, &config);
+        sync(verbose, buffer_size, &config);
         if once { break }
         sleep(sleep_time);
     }
